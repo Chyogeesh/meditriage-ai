@@ -1,4 +1,4 @@
-# 🚑 MediTriage AI
+# MediTriage AI
 
 **Idea2Impact 2026 · Theme: Crisis Management, HealthTech & Emergency Response**
 
