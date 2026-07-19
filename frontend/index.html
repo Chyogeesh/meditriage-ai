@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MediTriage AI — Emergency Triage Assistant</title>
+<style>
+  :root{
+    --emergency:#e11d48; --urgent:#f59e0b; --routine:#16a34a;
+    --bg:#0f172a; --card:#ffffff; --ink:#0f172a; --muted:#64748b;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+    background: linear-gradient(135deg,#0f172a,#1e293b);
+    min-height:100vh; padding:24px; color:var(--ink);
+  }
+  .wrap{max-width:920px;margin:0 auto;}
+  header{color:#fff; text-align:center; margin-bottom:24px;}
+  header h1{margin:0 0 6px; font-size:28px;}
+  header p{margin:0; color:#94a3b8; font-size:14px;}
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:20px;}
+  @media(max-width:800px){.grid{grid-template-columns:1fr;}}
+  .card{background:var(--card); border-radius:16px; padding:22px; box-shadow:0 10px 30px rgba(0,0,0,.25);}
+  .card h2{margin-top:0; font-size:16px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em;}
+  label{display:block; font-size:13px; font-weight:600; margin:12px 0 4px;}
+  input[type=number]{
+    width:100%; padding:9px 10px; border:1px solid #cbd5e1; border-radius:8px; font-size:14px;
+  }
+  .checks{display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:14px;}
+  .check{display:flex; align-items:center; gap:8px; font-size:13px; background:#f1f5f9; padding:8px 10px; border-radius:8px;}
+  button{
+    margin-top:20px; width:100%; padding:13px; border:none; border-radius:10px;
+    background:#2563eb; color:#fff; font-size:15px; font-weight:700; cursor:pointer;
+  }
+  button:hover{background:#1d4ed8;}
+  button:disabled{background:#94a3b8; cursor:not-allowed;}
+  .result{display:none;}
+  .badge{
+    display:inline-block; padding:8px 18px; border-radius:999px; color:#fff;
+    font-weight:800; font-size:18px; letter-spacing:.03em;
+  }
+  .confidence{color:var(--muted); font-size:13px; margin-top:6px;}
+  .rec{margin-top:14px; padding:12px 14px; border-radius:10px; background:#f8fafc; font-size:14px;}
+  .factor{
+    display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #eef2f7; font-size:13px;
+  }
+  .factor:last-child{border-bottom:none;}
+  .bar{height:6px; border-radius:3px; margin-top:4px; background:#e2e8f0; overflow:hidden;}
+  .bar-fill{height:100%; border-radius:3px;}
+  .placeholder{color:var(--muted); font-size:14px; text-align:center; padding:40px 10px;}
+  .error{color:var(--emergency); font-size:13px; margin-top:10px;}
+  .api-row{display:flex; gap:8px; margin-bottom:14px;}
+  .api-row input{flex:1;}
+  footer{text-align:center; color:#94a3b8; font-size:12px; margin-top:20px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🚑 MediTriage AI</h1>
+    <p>AI-powered emergency triage assistant for community health workers · explainable, offline-capable, built for low-resource settings</p>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Patient Vitals & Symptoms</h2>
+      <div class="api-row">
+        <input id="apiUrl" type="text" value="http://localhost:8000" placeholder="API base URL (deployed backend)"/>
+      </div>
+
+      <label>Age (years)</label>
+      <input type="number" id="age" value="45"/>
+
+      <label>Heart rate (bpm)</label>
+      <input type="number" id="heart_rate" value="88"/>
+
+      <label>Respiratory rate (breaths/min)</label>
+      <input type="number" id="resp_rate" value="18"/>
+
+      <label>SpO2 / blood oxygen (%)</label>
+      <input type="number" id="spo2" value="97"/>
+
+      <label>Temperature (°C)</label>
+      <input type="number" step="0.1" id="temp_c" value="37.0"/>
+
+      <label>Systolic blood pressure (mmHg)</label>
+      <input type="number" id="systolic_bp" value="120"/>
+
+      <div class="checks">
+        <label class="check"><input type="checkbox" id="chest_pain"/> Chest pain</label>
+        <label class="check"><input type="checkbox" id="breathing_difficulty"/> Breathing difficulty</label>
+        <label class="check"><input type="checkbox" id="severe_bleeding"/> Severe bleeding</label>
+        <label class="check"><input type="checkbox" id="confusion"/> Confusion</label>
+        <label class="check"><input type="checkbox" id="pregnant_complication"/> Pregnancy complication</label>
+      </div>
+
+      <button id="submitBtn" onclick="runTriage()">Run AI Triage</button>
+      <div id="errorBox" class="error"></div>
+    </div>
+
+    <div class="card">
+      <h2>AI Triage Result</h2>
+      <div id="placeholder" class="placeholder">Fill in vitals and click "Run AI Triage" to see the result.</div>
+      <div id="result" class="result">
+        <span id="badge" class="badge"></span>
+        <div id="confidence" class="confidence"></div>
+        <div id="rec" class="rec"></div>
+        <div style="margin-top:16px;">
+          <h2 style="margin-bottom:6px;">Why (SHAP explanation)</h2>
+          <div id="factors"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <footer>MediTriage AI · Idea2Impact 2026 · Crisis Management, HealthTech & Emergency Response</footer>
+</div>
+
+<script>
+const levelColor = {Emergency: 'var(--emergency)', Urgent: 'var(--urgent)', Routine: 'var(--routine)'};
+
+async function runTriage(){
+  const btn = document.getElementById('submitBtn');
+  const errorBox = document.getElementById('errorBox');
+  errorBox.textContent = '';
+  btn.disabled = true; btn.textContent = 'Analyzing...';
+
+  const apiBase = document.getElementById('apiUrl').value.replace(/\/$/, '');
+  const payload = {
+    age: Number(document.getElementById('age').value),
+    heart_rate: Number(document.getElementById('heart_rate').value),
+    resp_rate: Number(document.getElementById('resp_rate').value),
+    spo2: Number(document.getElementById('spo2').value),
+    temp_c: Number(document.getElementById('temp_c').value),
+    systolic_bp: Number(document.getElementById('systolic_bp').value),
+    chest_pain: document.getElementById('chest_pain').checked,
+    breathing_difficulty: document.getElementById('breathing_difficulty').checked,
+    severe_bleeding: document.getElementById('severe_bleeding').checked,
+    confusion: document.getElementById('confusion').checked,
+    pregnant_complication: document.getElementById('pregnant_complication').checked,
+  };
+
+  try{
+    const res = await fetch(`${apiBase}/predict`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if(!res.ok) throw new Error(`API error ${res.status}`);
+    const data = await res.json();
+
+    document.getElementById('placeholder').style.display = 'none';
+    document.getElementById('result').style.display = 'block';
+
+    const badge = document.getElementById('badge');
+    badge.textContent = data.triage_level.toUpperCase();
+    badge.style.background = levelColor[data.triage_level] || '#334155';
+
+    document.getElementById('confidence').textContent =
+      `Model confidence: ${(data.confidence*100).toFixed(1)}%  |  ` +
+      Object.entries(data.probabilities).map(([k,v])=>`${k}: ${(v*100).toFixed(0)}%`).join('  ·  ');
+
+    document.getElementById('rec').textContent = data.recommendation;
+
+    const factorsDiv = document.getElementById('factors');
+    factorsDiv.innerHTML = '';
+    data.top_factors.forEach(f=>{
+      const maxImpact = Math.max(...data.top_factors.map(x=>Math.abs(x.impact)), 0.001);
+      const pct = Math.abs(f.impact)/maxImpact*100;
+      const row = document.createElement('div');
+      row.className='factor';
+      row.innerHTML = `
+        <div style="flex:1;">
+          <div>${f.feature} <span style="color:var(--muted)">(value: ${f.value})</span></div>
+          <div class="bar"><div class="bar-fill" style="width:${pct}%; background:${f.direction==='increased' ? 'var(--emergency)':'var(--routine)'}"></div></div>
+        </div>
+        <div style="margin-left:10px; white-space:nowrap; font-weight:600;">${f.direction==='increased'?'⬆':'⬇'} risk</div>
+      `;
+      factorsDiv.appendChild(row);
+    });
+
+  }catch(err){
+    errorBox.textContent = `Could not reach the AI backend: ${err.message}. Make sure the API URL above points to your deployed backend.`;
+  }finally{
+    btn.disabled = false; btn.textContent = 'Run AI Triage';
+  }
+}
+</script>
+</body>
+</html>
